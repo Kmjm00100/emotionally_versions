@@ -55,7 +55,9 @@ export default function HomePage() {
         <div className="meta-row"><span>👤 Emma Thompson (32)</span><span>1 day ago</span><span>👁 2103</span></div>
       </div>
 
-  <Feed posts={posts}/>
+  <div style={{marginTop:16}}>
+    <Feed posts={posts} single={true}/>
+  </div>
   <div ref={sentinel} style={{height:20}} aria-hidden="true" />
   {page < pages && <div style={{textAlign:'center',marginTop:12}}>{/* show spinner while more loading */}<Spinner/></div>}
 
