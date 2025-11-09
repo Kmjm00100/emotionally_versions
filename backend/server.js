@@ -895,8 +895,8 @@ app.post('/api/trade', authMiddleware, async (req,res)=>{
 // --------------------
 // Connect to MongoDB & Start Server
 // --------------------
-// Start the HTTP server immediately and bind to IPv4 loopback by default
-const HOST = process.env.HOST || '127.0.0.1';
+// Start the HTTP server immediately and bind to all interfaces (0.0.0.0 for production)
+const HOST = process.env.HOST || '0.0.0.0';
 // AI Emotion Analysis endpoint - re-analyze existing posts
 app.post('/api/posts/:id/analyze', authMiddleware, async (req, res) => {
   try {
