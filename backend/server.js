@@ -13,7 +13,8 @@ const app = express();
 // Allow requests from frontend dev server (change FRONTEND_URL in .env if needed)
 // Accept both localhost and 127.0.0.1 and allow Authorization header for XHR/fetch
 const allowedOrigins = [
-  process.env.FRONTEND_URL, 
+  process.env.FRONTEND_URL,
+  process.env.VERCEL_URL, // Add Vercel deployment URL
   'http://localhost:3000', 
   'http://127.0.0.1:3000',
   'http://localhost:3001',
