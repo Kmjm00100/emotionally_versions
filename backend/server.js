@@ -2,6 +2,14 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+console.log('☁️ Cloudinary configured:', process.env.CLOUDINARY_CLOUD_NAME);
+
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -11,6 +19,9 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import mongoSanitize from "express-mongo-sanitize";
 import { analyzeEmotion, quickEmotionCheck } from './emotionAI.js';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import multer from 'multer';
 
 const app = express();
 
@@ -720,22 +731,21 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
 }, async (req, res) => {
   try {
     const body = req.body || {};
+    // Cloudinary returns the full URL in file.path
     const images = ((req.files && req.files.images) ? req.files.images : []).map(f => {
-      const p = `/uploads/${f.filename}`;
-      console.log('📸 Image uploaded:', f.filename);
-      return p.startsWith('/') ? p : '/' + p;
+      console.log('📸 Image uploaded to Cloudinary:', f.path);
+      return f.path; // Cloudinary URL
     });
     const proofs = ((req.files && req.files.proofs) ? req.files.proofs : []).map(f => {
-      const p = `/uploads/${f.filename}`;
-      return p.startsWith('/') ? p : '/' + p;
+      return f.path; // Cloudinary URL
     });
     
     // Handle audio file for voice notes
     let voiceNoteData = null;
     if (req.files && req.files.audio && req.files.audio[0]) {
       const audioFile = req.files.audio[0];
-      const audioUrl = `/uploads/${audioFile.filename}`;
-      console.log('🎤 Audio uploaded:', audioFile.filename);
+      const audioUrl = audioFile.path; // Cloudinary URL
+      console.log('🎤 Audio uploaded to Cloudinary:', audioUrl);
       // TODO: Add Groq Whisper transcription here in future
       voiceNoteData = {
         audioUrl,
@@ -1155,32 +1165,23 @@ app.get('/api/my-posts', authMiddleware, async (req, res) => {
 // Serve uploaded avatars and configure multer - compute __dirname reliably in ESM
 import path from 'path';
 import { fileURLToPath } from 'url';
-import multer from 'multer';
 import fs from 'fs';
 // compute __dirname reliably in ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-// ensure uploads folder exists
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  console.log('📁 Created uploads directory:', UPLOADS_DIR);
-}
-// Serve uploads with CORS headers
-app.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-  next();
-}, express.static(UPLOADS_DIR));
-console.log('📂 Serving uploads from:', UPLOADS_DIR);
-// configure multer with basic file type and size checks
-const storage = multer.diskStorage({
-  destination: function(req, file, cb){ cb(null, UPLOADS_DIR) },
-  filename: function(req, file, cb){ const ext = path.extname(file.originalname); cb(null, Date.now() + ext) }
+
+// Configure Cloudinary Storage for Multer
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'emotionally-uploads', // Folder name in Cloudinary
+    allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp3', 'wav', 'm4a', 'mp4'],
+    resource_type: 'auto', // Automatically detect file type (image, video, audio)
+    transformation: [{ quality: 'auto', fetch_format: 'auto' }] // Auto-optimize images
+  }
 });
+console.log('☁️ Using Cloudinary storage for uploads');
+
 const fileFilter = (req, file, cb) => {
   // accept images and audio files
   const allowedImages = ['image/jpeg','image/png','image/gif','image/jpg','image/webp'];
@@ -1192,7 +1193,11 @@ const fileFilter = (req, file, cb) => {
     cb(new Error('Only image and audio files are allowed'));
   }
 };
-const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB for audio
+const upload = multer({ 
+  storage, 
+  fileFilter, 
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB for audio
+});
 
 // middleware to handle multer errors cleanly
 function multerErrorHandler(err, req, res, next){
@@ -1205,7 +1210,6 @@ function multerErrorHandler(err, req, res, next){
   }
   next();
 }
-
 // basic request logger for debugging uploads
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl}`);
