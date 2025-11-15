@@ -86,7 +86,10 @@ const userSchema = new mongoose.Schema({
   hearts: { type: Number, default: 5 },
   avatar: String,
   favoriteWriters: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  circles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Circle' }]
+  circles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Circle' }],
+  // Heart gifting stats
+  heartsGifted: { type: Number, default: 0 },
+  heartsReceived: { type: Number, default: 0 }
 });
 
 
@@ -177,6 +180,19 @@ const postSchema = new mongoose.Schema({
   likes: { type: Number, default: 0 },
   likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   comments: [{ userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, username: String, text: String, createdAt: { type: Date, default: Date.now } }],
+  // Reactions (empathy, support, strength, hope)
+  reactions: {
+    empathy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    support: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    strength: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    hope: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  },
+  // Voice Note
+  voiceNote: {
+    audioUrl: String,
+    duration: Number, // in seconds
+    transcript: String
+  },
   // Circle fields
   circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle' },
   isAnonymous: { type: Boolean, default: false },
@@ -247,6 +263,53 @@ const tradeOfferSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const TradeOffer = mongoose.model('TradeOffer', tradeOfferSchema);
+
+// MoodEntry model (Mood Tracking)
+const moodEntrySchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  mood: { 
+    type: String, 
+    enum: ['happy', 'neutral', 'sad', 'anxious', 'angry', 'excited', 'peaceful', 'overwhelmed'],
+    required: true 
+  },
+  intensity: { type: Number, min: 1, max: 10, required: true }, // 1-10 scale
+  note: { type: String, maxlength: 500 },
+  activities: [String], // e.g., ['exercise', 'meditation', 'socializing']
+  triggers: [String], // e.g., ['work', 'family', 'health']
+  aiInsight: String, // AI-generated insight about mood patterns
+  createdAt: { type: Date, default: Date.now }
+});
+moodEntrySchema.index({ userId: 1, createdAt: -1 });
+const MoodEntry = mongoose.model('MoodEntry', moodEntrySchema);
+
+// HeartGift model (Heart Gifting)
+const heartGiftSchema = new mongoose.Schema({
+  fromUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  toUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  amount: { type: Number, required: true, min: 1 },
+  message: { type: String, maxlength: 200 },
+  postId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post' }, // Optional: gift related to a post
+  createdAt: { type: Date, default: Date.now }
+});
+heartGiftSchema.index({ toUserId: 1, createdAt: -1 });
+heartGiftSchema.index({ fromUserId: 1, createdAt: -1 });
+const HeartGift = mongoose.model('HeartGift', heartGiftSchema);
+
+// WritingStreak model (Gamification)
+const writingStreakSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  currentStreak: { type: Number, default: 0 },
+  longestStreak: { type: Number, default: 0 },
+  lastPostDate: Date,
+  streakDates: [Date], // Array of dates when user posted
+  totalPosts: { type: Number, default: 0 },
+  badges: [{ 
+    type: { type: String }, // '7-day', '30-day', '100-day', etc.
+    earnedAt: Date 
+  }],
+  updatedAt: { type: Date, default: Date.now }
+});
+const WritingStreak = mongoose.model('WritingStreak', writingStreakSchema);
 
 // --------------------
 // Middleware
@@ -642,9 +705,13 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
-// Create post (supports multipart images + verification proofs)
+// Create post (supports multipart images + verification proofs + voice notes)
 app.post("/api/posts", authMiddleware, (req, res, next) => {
-  const fields = upload.fields([ { name:'images', maxCount:6 }, { name:'proofs', maxCount:6 } ]);
+  const fields = upload.fields([ 
+    { name:'images', maxCount:6 }, 
+    { name:'proofs', maxCount:6 },
+    { name:'audio', maxCount:1 }
+  ]);
   fields(req, res, function(err){
     if(err) return next(err);
     next();
@@ -660,6 +727,19 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
       const p = `/uploads/${f.filename}`;
       return p.startsWith('/') ? p : '/' + p;
     });
+    
+    // Handle audio file for voice notes
+    let voiceNoteData = null;
+    if (req.files && req.files.audio && req.files.audio[0]) {
+      const audioFile = req.files.audio[0];
+      const audioUrl = `/uploads/${audioFile.filename}`;
+      // TODO: Add Groq Whisper transcription here in future
+      voiceNoteData = {
+        audioUrl,
+        duration: 0, // Can be calculated on frontend
+        transcript: '' // Will add Whisper API later
+      };
+    }
     
     const visibility = body.visibility === 'Private' ? 'Private' : 'Public';
     const allowTrading = body.allowTrading === 'true' || body.allowTrading === true;
@@ -714,6 +794,10 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
       language,
       hook,
       ownerId: req.user.id,
+      // Voice note
+      voiceNote: voiceNoteData,
+      // Circle support
+      ownerId: req.user.id,
       // Circle support
       circleId: body.circleId || null,
       isAnonymous: body.isAnonymous || false
@@ -764,6 +848,10 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
     }
     const post = new Post(postData);
     await post.save();
+    
+    // Update writing streak
+    await updateWritingStreak(req.user.id);
+    
     res.json(post);
   } catch (err) {
     console.error("Create post error:", err.message);
@@ -1075,12 +1163,17 @@ const storage = multer.diskStorage({
   filename: function(req, file, cb){ const ext = path.extname(file.originalname); cb(null, Date.now() + ext) }
 });
 const fileFilter = (req, file, cb) => {
-  // accept based on mimetype for stronger validation
-  const allowed = ['image/jpeg','image/png','image/gif','image/jpg','image/webp'];
-  if(allowed.includes(file.mimetype)) cb(null, true);
-  else cb(new Error('Only image files are allowed'));
+  // accept images and audio files
+  const allowedImages = ['image/jpeg','image/png','image/gif','image/jpg','image/webp'];
+  const allowedAudio = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/x-m4a', 'audio/mp4'];
+  
+  if(allowedImages.includes(file.mimetype) || allowedAudio.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image and audio files are allowed'));
+  }
 };
-const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage, fileFilter, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB for audio
 
 // middleware to handle multer errors cleanly
 function multerErrorHandler(err, req, res, next){
@@ -1209,6 +1302,367 @@ app.get('/api/posts/:id/analysis', async (req, res) => {
   }
 });
 
+// --------------------
+// MOOD TRACKING ENDPOINTS
+// --------------------
+
+// Create mood entry
+app.post('/api/moods', authMiddleware, async (req, res) => {
+  try {
+    const { mood, intensity, note, activities, triggers } = req.body;
+    
+    if (!mood || !intensity) {
+      return res.status(400).json({ error: 'Mood and intensity are required' });
+    }
+
+    const moodEntry = new MoodEntry({
+      userId: req.user.id,
+      mood,
+      intensity,
+      note,
+      activities: activities || [],
+      triggers: triggers || []
+    });
+
+    await moodEntry.save();
+    res.json({ ok: true, moodEntry });
+  } catch (error) {
+    console.error('Create mood error:', error);
+    res.status(500).json({ error: 'Failed to create mood entry' });
+  }
+});
+
+// Get mood history
+app.get('/api/moods', authMiddleware, async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(days));
+
+    const moods = await MoodEntry.find({
+      userId: req.user.id,
+      createdAt: { $gte: since }
+    }).sort({ createdAt: -1 });
+
+    res.json({ moods });
+  } catch (error) {
+    console.error('Get moods error:', error);
+    res.status(500).json({ error: 'Failed to retrieve mood history' });
+  }
+});
+
+// Get AI insights about mood patterns
+app.get('/api/moods/insights', authMiddleware, async (req, res) => {
+  try {
+    const moods = await MoodEntry.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .limit(30);
+
+    if (moods.length < 3) {
+      return res.json({ insight: 'Track more moods to get personalized insights!' });
+    }
+
+    // Generate AI insight using Groq
+    const moodSummary = moods.map(m => 
+      `${m.mood} (intensity: ${m.intensity}/10) - ${m.note || 'no note'}`
+    ).join('\n');
+
+    const prompt = `Analyze these mood entries and provide a brief, empathetic insight about patterns and suggestions:
+
+${moodSummary}
+
+Provide a short, caring response (2-3 sentences) highlighting any patterns and offering gentle guidance.`;
+
+    const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.7,
+        max_tokens: 200
+      })
+    });
+
+    const data = await groqResponse.json();
+    const insight = data.choices?.[0]?.message?.content || 'Unable to generate insights at this time.';
+
+    res.json({ insight, totalEntries: moods.length });
+  } catch (error) {
+    console.error('Get insights error:', error);
+    res.status(500).json({ error: 'Failed to generate insights' });
+  }
+});
+
+// --------------------
+// HEART GIFTING ENDPOINTS
+// --------------------
+
+// Send hearts as a gift
+app.post('/api/gifts/send', authMiddleware, async (req, res) => {
+  try {
+    const { toUserId, amount, message, postId } = req.body;
+
+    if (!toUserId || !amount || amount < 1) {
+      return res.status(400).json({ error: 'Invalid gift parameters' });
+    }
+
+    // Check if sender has enough hearts
+    const sender = await User.findById(req.user.id);
+    if (sender.hearts < amount) {
+      return res.status(400).json({ error: 'Not enough hearts to gift' });
+    }
+
+    // Prevent self-gifting
+    if (toUserId === req.user.id) {
+      return res.status(400).json({ error: 'Cannot gift hearts to yourself' });
+    }
+
+    // Transfer hearts
+    const receiver = await User.findById(toUserId);
+    if (!receiver) {
+      return res.status(404).json({ error: 'Recipient not found' });
+    }
+
+    sender.hearts -= amount;
+    sender.heartsGifted += amount;
+    receiver.hearts += amount;
+    receiver.heartsReceived += amount;
+
+    // Create gift record
+    const gift = new HeartGift({
+      fromUserId: req.user.id,
+      toUserId,
+      amount,
+      message,
+      postId
+    });
+
+    await Promise.all([sender.save(), receiver.save(), gift.save()]);
+
+    res.json({ 
+      ok: true, 
+      remainingHearts: sender.hearts,
+      message: 'Hearts sent successfully!' 
+    });
+  } catch (error) {
+    console.error('Send gift error:', error);
+    res.status(500).json({ error: 'Failed to send gift' });
+  }
+});
+
+// Get received gifts
+app.get('/api/gifts/received', authMiddleware, async (req, res) => {
+  try {
+    const gifts = await HeartGift.find({ toUserId: req.user.id })
+      .populate('fromUserId', 'username avatar')
+      .populate('postId', 'title emotion')
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    res.json({ gifts });
+  } catch (error) {
+    console.error('Get gifts error:', error);
+    res.status(500).json({ error: 'Failed to retrieve gifts' });
+  }
+});
+
+// Get sent gifts
+app.get('/api/gifts/sent', authMiddleware, async (req, res) => {
+  try {
+    const gifts = await HeartGift.find({ fromUserId: req.user.id })
+      .populate('toUserId', 'username avatar')
+      .populate('postId', 'title emotion')
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    res.json({ gifts });
+  } catch (error) {
+    console.error('Get sent gifts error:', error);
+    res.status(500).json({ error: 'Failed to retrieve sent gifts' });
+  }
+});
+
+// --------------------
+// POST REACTIONS ENDPOINTS
+// --------------------
+
+// Add/update reaction to post
+app.post('/api/posts/:id/react', authMiddleware, async (req, res) => {
+  try {
+    const { reactionType } = req.body; // 'empathy', 'support', 'strength', 'hope'
+    const validReactions = ['empathy', 'support', 'strength', 'hope'];
+
+    if (!validReactions.includes(reactionType)) {
+      return res.status(400).json({ error: 'Invalid reaction type' });
+    }
+
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Initialize reactions if not exists
+    if (!post.reactions) {
+      post.reactions = { empathy: [], support: [], strength: [], hope: [] };
+    }
+
+    // Remove user from all reaction arrays first (toggle functionality)
+    validReactions.forEach(type => {
+      post.reactions[type] = post.reactions[type].filter(
+        id => id.toString() !== req.user.id
+      );
+    });
+
+    // Add user to the selected reaction
+    post.reactions[reactionType].push(req.user.id);
+
+    await post.save();
+
+    res.json({ 
+      ok: true, 
+      reactions: {
+        empathy: post.reactions.empathy.length,
+        support: post.reactions.support.length,
+        strength: post.reactions.strength.length,
+        hope: post.reactions.hope.length
+      },
+      userReaction: reactionType
+    });
+  } catch (error) {
+    console.error('React error:', error);
+    res.status(500).json({ error: 'Failed to add reaction' });
+  }
+});
+
+// Remove reaction from post
+app.delete('/api/posts/:id/react', authMiddleware, async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const validReactions = ['empathy', 'support', 'strength', 'hope'];
+    validReactions.forEach(type => {
+      if (post.reactions && post.reactions[type]) {
+        post.reactions[type] = post.reactions[type].filter(
+          id => id.toString() !== req.user.id
+        );
+      }
+    });
+
+    await post.save();
+    res.json({ ok: true, message: 'Reaction removed' });
+  } catch (error) {
+    console.error('Remove reaction error:', error);
+    res.status(500).json({ error: 'Failed to remove reaction' });
+  }
+});
+
+// --------------------
+// WRITING STREAKS ENDPOINTS
+// --------------------
+
+// Get user's writing streak
+app.get('/api/streaks/my', authMiddleware, async (req, res) => {
+  try {
+    let streak = await WritingStreak.findOne({ userId: req.user.id });
+    
+    if (!streak) {
+      streak = new WritingStreak({ userId: req.user.id });
+      await streak.save();
+    }
+
+    res.json({ streak });
+  } catch (error) {
+    console.error('Get streak error:', error);
+    res.status(500).json({ error: 'Failed to retrieve streak' });
+  }
+});
+
+// Update streak (called when user creates a post)
+async function updateWritingStreak(userId) {
+  try {
+    let streak = await WritingStreak.findOne({ userId });
+    
+    if (!streak) {
+      streak = new WritingStreak({ 
+        userId,
+        currentStreak: 1,
+        longestStreak: 1,
+        lastPostDate: new Date(),
+        streakDates: [new Date()],
+        totalPosts: 1
+      });
+      await streak.save();
+      return streak;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const lastPost = streak.lastPostDate ? new Date(streak.lastPostDate) : null;
+    if (lastPost) {
+      lastPost.setHours(0, 0, 0, 0);
+    }
+
+    // Check if already posted today
+    if (lastPost && lastPost.getTime() === today.getTime()) {
+      // Already posted today, just increment total
+      streak.totalPosts += 1;
+      await streak.save();
+      return streak;
+    }
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Check if streak continues
+    if (lastPost && lastPost.getTime() === yesterday.getTime()) {
+      // Consecutive day!
+      streak.currentStreak += 1;
+      if (streak.currentStreak > streak.longestStreak) {
+        streak.longestStreak = streak.currentStreak;
+      }
+    } else if (!lastPost || lastPost.getTime() < yesterday.getTime()) {
+      // Streak broken, start new
+      streak.currentStreak = 1;
+    }
+
+    streak.lastPostDate = today;
+    streak.streakDates.push(today);
+    streak.totalPosts += 1;
+
+    // Award badges
+    if (!streak.badges) streak.badges = [];
+    const badgesToAward = [
+      { type: '7-day', threshold: 7 },
+      { type: '30-day', threshold: 30 },
+      { type: '100-day', threshold: 100 },
+      { type: '365-day', threshold: 365 }
+    ];
+
+    badgesToAward.forEach(badge => {
+      if (streak.currentStreak >= badge.threshold) {
+        const hasBadge = streak.badges.some(b => b.type === badge.type);
+        if (!hasBadge) {
+          streak.badges.push({ type: badge.type, earnedAt: new Date() });
+        }
+      }
+    });
+
+    await streak.save();
+    return streak;
+  } catch (error) {
+    console.error('Update streak error:', error);
+  }
+}
+
+// --------------------
 const server = app.listen(PORT, HOST, () => {
   console.log(`🚀 Backend running at http://${HOST}:${PORT}`);
 });
