@@ -17,7 +17,8 @@ const app = express();
 // Security Headers
 app.use(helmet({
   contentSecurityPolicy: false, // Allow for now, can be configured later
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow cross-origin resources
 }));
 
 // Sanitize data to prevent MongoDB injection
@@ -1168,8 +1169,10 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 // Serve uploads with CORS headers
 app.use('/uploads', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
   next();
 }, express.static(UPLOADS_DIR));
 console.log('📂 Serving uploads from:', UPLOADS_DIR);
