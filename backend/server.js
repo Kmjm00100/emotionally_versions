@@ -721,6 +721,7 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
     const body = req.body || {};
     const images = ((req.files && req.files.images) ? req.files.images : []).map(f => {
       const p = `/uploads/${f.filename}`;
+      console.log('📸 Image uploaded:', f.filename);
       return p.startsWith('/') ? p : '/' + p;
     });
     const proofs = ((req.files && req.files.proofs) ? req.files.proofs : []).map(f => {
@@ -733,12 +734,17 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
     if (req.files && req.files.audio && req.files.audio[0]) {
       const audioFile = req.files.audio[0];
       const audioUrl = `/uploads/${audioFile.filename}`;
+      console.log('🎤 Audio uploaded:', audioFile.filename);
       // TODO: Add Groq Whisper transcription here in future
       voiceNoteData = {
         audioUrl,
         duration: 0, // Can be calculated on frontend
         transcript: '' // Will add Whisper API later
       };
+    }
+    
+    if (images.length > 0) {
+      console.log('✅ Total images for post:', images.length, images);
     }
     
     const visibility = body.visibility === 'Private' ? 'Private' : 'Public';
@@ -1155,8 +1161,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 // ensure uploads folder exists
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-app.use('/uploads', express.static(UPLOADS_DIR));
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  console.log('📁 Created uploads directory:', UPLOADS_DIR);
+}
+// Serve uploads with CORS headers
+app.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(UPLOADS_DIR));
+console.log('📂 Serving uploads from:', UPLOADS_DIR);
 // configure multer with basic file type and size checks
 const storage = multer.diskStorage({
   destination: function(req, file, cb){ cb(null, UPLOADS_DIR) },
