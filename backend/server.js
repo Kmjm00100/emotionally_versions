@@ -52,7 +52,8 @@ const userSchema = new mongoose.Schema({
   password: String,
   hearts: { type: Number, default: 5 },
   avatar: String,
-  favoriteWriters: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  favoriteWriters: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  circles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Circle' }]
 });
 
 
@@ -143,6 +144,10 @@ const postSchema = new mongoose.Schema({
   likes: { type: Number, default: 0 },
   likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   comments: [{ userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, username: String, text: String, createdAt: { type: Date, default: Date.now } }],
+  // Circle fields
+  circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle' },
+  isAnonymous: { type: Boolean, default: false },
+  expiresAt: { type: Date }, // For auto-delete in circles
   // listing fields
   rarity: { type: String, enum: ['Common','Rare','Legendary'], default: 'Common' },
   verified: { type: Boolean, default: false },
@@ -173,6 +178,20 @@ const postSchema = new mongoose.Schema({
   }
 });
 const Post = mongoose.model("Post", postSchema);
+
+// Circle model (Support Circles)
+const circleSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  slug: { type: String, required: true, unique: true },
+  description: String,
+  icon: String, // emoji or icon name
+  color: { type: String, default: '#8B5CF6' }, // default purple
+  memberCount: { type: Number, default: 0 },
+  postCount: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true }
+});
+const Circle = mongoose.model('Circle', circleSchema);
 
 // Listing model (sell)
 const listingSchema = new mongoose.Schema({
@@ -394,6 +413,155 @@ app.delete('/api/favorites/:writerId', authMiddleware, async (req, res) => {
   }
 });
 
+// --------------------
+// Circle Endpoints
+// --------------------
+
+// Get all circles
+app.get('/api/circles', async (req, res) => {
+  try {
+    const circles = await Circle.find({ isActive: true }).sort({ memberCount: -1 }).lean();
+    res.json(circles);
+  } catch (err) {
+    console.error('Get circles error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get single circle by slug
+app.get('/api/circles/:slug', async (req, res) => {
+  try {
+    const circle = await Circle.findOne({ slug: req.params.slug, isActive: true }).lean();
+    if (!circle) {
+      return res.status(404).json({ error: 'Circle not found' });
+    }
+    res.json(circle);
+  } catch (err) {
+    console.error('Get circle error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Join a circle
+app.post('/api/circles/:slug/join', authMiddleware, async (req, res) => {
+  try {
+    const circle = await Circle.findOne({ slug: req.params.slug });
+    if (!circle) {
+      return res.status(404).json({ error: 'Circle not found' });
+    }
+
+    // Add circle to user's circles
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $addToSet: { circles: circle._id } },
+      { new: true }
+    );
+
+    // Check if actually added (not already in array)
+    const wasAdded = user.circles.some(c => c.toString() === circle._id.toString());
+    if (wasAdded && user.circles.filter(c => c.toString() === circle._id.toString()).length === 1) {
+      // Increment member count only if newly added
+      await Circle.findByIdAndUpdate(circle._id, { $inc: { memberCount: 1 } });
+    }
+
+    res.json({ ok: true, message: 'Joined circle successfully' });
+  } catch (err) {
+    console.error('Join circle error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Leave a circle
+app.post('/api/circles/:slug/leave', authMiddleware, async (req, res) => {
+  try {
+    const circle = await Circle.findOne({ slug: req.params.slug });
+    if (!circle) {
+      return res.status(404).json({ error: 'Circle not found' });
+    }
+
+    // Remove circle from user's circles
+    const user = await User.findById(req.user.id);
+    const hadCircle = user.circles.some(c => c.toString() === circle._id.toString());
+    
+    await User.findByIdAndUpdate(
+      req.user.id,
+      { $pull: { circles: circle._id } }
+    );
+
+    // Decrement member count if user actually had the circle
+    if (hadCircle) {
+      await Circle.findByIdAndUpdate(circle._id, { $inc: { memberCount: -1 } });
+    }
+
+    res.json({ ok: true, message: 'Left circle successfully' });
+  } catch (err) {
+    console.error('Leave circle error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get user's joined circles
+app.get('/api/my-circles', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).populate('circles').lean();
+    res.json(user.circles || []);
+  } catch (err) {
+    console.error('Get my circles error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get posts in a specific circle
+app.get('/api/circles/:slug/posts', async (req, res) => {
+  try {
+    const circle = await Circle.findOne({ slug: req.params.slug });
+    if (!circle) {
+      return res.status(404).json({ error: 'Circle not found' });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, parseInt(req.query.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    // Get posts in this circle, exclude expired ones
+    const now = new Date();
+    const query = { 
+      circleId: circle._id,
+      $or: [
+        { expiresAt: { $exists: false } },
+        { expiresAt: null },
+        { expiresAt: { $gt: now } }
+      ]
+    };
+
+    const total = await Post.countDocuments(query);
+    let posts = await Post.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    // Hide author info for anonymous posts
+    const origin = req.protocol + '://' + req.get('host');
+    posts = posts.map(p => {
+      const post = { ...p };
+      if (post.isAnonymous) {
+        post.author = 'Anonymous';
+        post.userId = null;
+      }
+      post.images = (post.images || []).map(src => 
+        src && src.startsWith('http') ? src : `${origin}${src}`
+      );
+      return post;
+    });
+
+    res.json({ posts, total, page, pages: Math.ceil(total / limit) });
+  } catch (err) {
+    console.error('Get circle posts error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Get all posts
 app.get("/api/posts", async (req, res) => {
   try {
@@ -485,8 +653,21 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
       categories,
       language,
       hook,
-      ownerId: req.user.id
+      ownerId: req.user.id,
+      // Circle support
+      circleId: body.circleId || null,
+      isAnonymous: body.isAnonymous || false
     };
+
+    // Set expiration for circle posts (7 days)
+    if (postData.circleId) {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+      postData.expiresAt = expiresAt;
+      
+      // Increment circle post count
+      await Circle.findByIdAndUpdate(postData.circleId, { $inc: { postCount: 1 } });
+    }
 
     // Add AI analysis if available
     if (aiAnalysisResult) {
