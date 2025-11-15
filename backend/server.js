@@ -7,9 +7,42 @@ import mongoose from "mongoose";
 import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import mongoSanitize from "express-mongo-sanitize";
 import { analyzeEmotion, quickEmotionCheck } from './emotionAI.js';
 
 const app = express();
+
+// Security Headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow for now, can be configured later
+  crossOriginEmbedderPolicy: false
+}));
+
+// Sanitize data to prevent MongoDB injection
+app.use(mongoSanitize());
+
+// Rate limiting - prevent brute force attacks
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to all routes
+app.use(limiter);
+
+// Stricter rate limit for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login/register attempts per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  skipSuccessfulRequests: true, // Don't count successful logins
+});
+
 // Allow requests from frontend dev server (change FRONTEND_URL in .env if needed)
 // Accept both localhost and 127.0.0.1 and allow Authorization header for XHR/fetch
 const allowedOrigins = [
@@ -49,7 +82,7 @@ const { MONGO_URI, JWT_SECRET, PORT = 5000 } = process.env;
 // --------------------
 const userSchema = new mongoose.Schema({
   username: { type: String, unique: true },
-  password: String,
+  password: { type: String, select: false }, // Exclude password by default
   hearts: { type: Number, default: 5 },
   avatar: String,
   favoriteWriters: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -238,31 +271,58 @@ const authMiddleware = (req, res, next) => {
 // --------------------
 
 // Register user
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", authLimiter, async (req, res) => {
   const { username, password } = req.body;
   try {
+    // Input validation
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+    if (username.length < 3 || username.length > 20) {
+      return res.status(400).json({ error: "Username must be 3-20 characters" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    
     const hashed = await bcrypt.hash(password, 10);
     const user = new User({ username, password: hashed });
     await user.save();
     res.json({ message: "User registered successfully" });
   } catch (err) {
     console.error("Register error:", err.message);
-    res.status(400).json({ error: "Username already exists" });
+    if (err.code === 11000) {
+      res.status(400).json({ error: "Username already exists" });
+    } else {
+      res.status(500).json({ error: "Registration failed" });
+    }
   }
 });
 
 // Login user
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", authLimiter, async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user = await User.findOne({ username });
+    // Input validation
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+    
+    const user = await User.findOne({ username }).select('+password');
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, username: user.username, hearts: user.hearts, userId: user._id });
+    
+    // NEVER send password in response
+    res.json({ 
+      token, 
+      username: user.username, 
+      hearts: user.hearts, 
+      userId: user._id 
+    });
   } catch (err) {
     console.error("Login error:", err.message);
     res.status(500).json({ error: "Server error" });
