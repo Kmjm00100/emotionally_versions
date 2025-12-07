@@ -3,12 +3,14 @@ import TopBar from "../components/TopBar";
 import Feed from "../components/Feed";
 import BottomNav from "../components/BottomNav";
 import Spinner from "../components/Spinner";
+import { API_URL } from '../config';
+
 export default function HomePage() {
   const [posts, setPosts] = useState([]);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   useEffect(()=>{
-    fetch(`http://127.0.0.1:5000/api/posts?page=${page}&limit=6`).then(r=>r.json()).then(data=>{
+    fetch(`${API_URL}/api/posts?page=${page}&limit=6`).then(r=>r.json()).then(data=>{
       if(!data) return setPosts([]);
       setPosts(p=> page === 1 ? data.posts : [...p, ...data.posts]);
       setPages(data.pages || 1);

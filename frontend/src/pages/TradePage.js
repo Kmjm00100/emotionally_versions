@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../api';
+import { API_URL } from '../config';
 
 export default function TradePage(){
   const { token, user, login } = useAuth();
@@ -24,17 +25,17 @@ export default function TradePage(){
     try{
       const headers = token? { Authorization:`Bearer ${token}` } : {};
       if(token){
-        const a = await fetch('http://127.0.0.1:5000/api/owned', { headers });
+        const a = await fetch(`${API_URL}/api/owned`, { headers });
         if(a.ok) setOwned(await a.json());
-        const oin = await fetch('http://127.0.0.1:5000/api/trades?dir=in', { headers });
+        const oin = await fetch(`${API_URL}/api/trades?dir=in`, { headers });
         if(oin.ok) setOffersIn(await oin.json());
-        const oout = await fetch('http://127.0.0.1:5000/api/trades?dir=out', { headers });
+        const oout = await fetch(`${API_URL}/api/trades?dir=out`, { headers });
         if(oout.ok) setOffersOut(await oout.json());
       }
-      const l = await fetch('http://127.0.0.1:5000/api/listings');
+      const l = await fetch(`${API_URL}/api/listings`);
       if(l.ok) setListings(await l.json());
       // Load all public posts for browsing
-      const bp = await fetch('http://127.0.0.1:5000/api/posts?limit=50');
+      const bp = await fetch(`${API_URL}/api/posts?limit=50`);
       if(bp.ok){
         const data = await bp.json();
         setBrowsePosts(data.posts || []);
@@ -44,7 +45,7 @@ export default function TradePage(){
   const buyListing = async (listingId)=>{
     if(!token) return showToast('Login required','error');
     try{
-      const r = await fetch(`http://127.0.0.1:5000/api/listings/${listingId}/buy`,{ method:'POST', headers:{ 'Authorization':`Bearer ${token}` } });
+      const r = await fetch(`${API_URL}/api/listings/${listingId}/buy`,{ method:'POST', headers:{ 'Authorization':`Bearer ${token}` } });
       const d = await r.json();
       if(r.ok){
         if(user){ login({ username: user.username, token, hearts: d.buyerHearts, userId: user.userId }); }
@@ -62,7 +63,7 @@ export default function TradePage(){
     const price = parseInt(priceMap[postId]||'0',10);
     if(!price || price<=0) return showToast('Set a valid price','error');
     try{
-      const r = await fetch('http://127.0.0.1:5000/api/listings',{ method:'POST', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ postId, priceHearts: price }) });
+      const r = await fetch(`${API_URL}/api/listings`,{ method:'POST', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ postId, priceHearts: price }) });
       if(r.ok){ showToast('Listed for sale','success'); setPriceMap(m=>({ ...m, [postId]:'' })); loadAll(); } else { const d=await r.json(); showToast(d.error||'Failed','error') }
     }catch(_){ showToast('Network error','error') }
   };
@@ -70,7 +71,7 @@ export default function TradePage(){
   const actTrade = async (id, status)=>{
     if(!token) return;
     try{
-      const r = await fetch(`http://127.0.0.1:5000/api/trades/${id}`,{ method:'PATCH', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ status }) });
+      const r = await fetch(`${API_URL}/api/trades/${id}`,{ method:'PATCH', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ status }) });
       if(r.ok){ showToast('Updated','success'); loadAll(); } else { const d=await r.json(); showToast(d.error||'Failed','error') }
     }catch(_){ showToast('Network error','error') }
   }
@@ -79,7 +80,7 @@ export default function TradePage(){
     if(!token) return showToast('Login required','error');
     if(!offerPostId || !requestPostId) return showToast('Select both emotions','error');
     try{
-      const r = await fetch('http://127.0.0.1:5000/api/trades', { method:'POST', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ offerPostId, requestPostId, message }) });
+      const r = await fetch(`${API_URL}/api/trades`, { method:'POST', headers:{ 'Content-Type':'application/json','Authorization':`Bearer ${token}` }, body: JSON.stringify({ offerPostId, requestPostId, message }) });
       if(r.ok){ showToast('Offer sent','success'); setMessage(''); setOfferPostId(''); setRequestPostId(''); setSelectedBrowsePost(null); loadAll(); } else { const d=await r.json(); showToast(d.error||'Failed','error') }
     }catch(_){ showToast('Network error','error') }
   };

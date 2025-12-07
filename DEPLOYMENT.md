@@ -29,7 +29,7 @@ The frontend is already in the repository: `https://github.com/Kmjm00100/emotion
 
 5. Add Environment Variables:
    - Click **"Environment Variables"**
-   - Add: `REACT_APP_API` = `https://your-backend-url.onrender.com`
+   - Add:   ` = `https://your-backend-url.onrender.com`
    - (You'll get the backend URL after deploying to Render)
 
 6. Click **"Deploy"**

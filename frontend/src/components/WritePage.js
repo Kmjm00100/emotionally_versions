@@ -1,10 +1,11 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Spinner from './Spinner';
 import TopBar from './TopBar';
 import BottomNav from './BottomNav';
+import { API_URL } from '../config';
 
 export default function WritePage() {
   const [title, setTitle] = useState('');
@@ -20,12 +21,41 @@ export default function WritePage() {
   const { token } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
   const [proofFiles, setProofFiles] = useState([]);
   const [progress, setProgress] = useState(0);
   const xhrRef = useRef();
+  
+  // Circle posting
+  const [circleId, setCircleId] = useState(null);
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [circle, setCircle] = useState(null);
+
+  // Check if posting to a circle
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const circleSlug = params.get('circle');
+    if (circleSlug) {
+      fetchCircle(circleSlug);
+    }
+  }, [location]);
+
+  const fetchCircle = async (slug) => {
+    try {
+      const res = await fetch(`${API_URL}/api/circles/${slug}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCircle(data);
+        setCircleId(data._id);
+        setIsAnonymous(true); // Default to anonymous for circle posts
+      }
+    } catch (err) {
+      console.error('Fetch circle error:', err);
+    }
+  };
 
   const submit = async () => {
     if (!token) { showToast('You must be logged in to post', 'error'); return }
@@ -54,6 +84,12 @@ export default function WritePage() {
       fd.append('emotion', '✍️');
       files.forEach(f => fd.append('images', f));
       proofFiles.forEach(f => fd.append('proofs', f));
+      
+      // Add circle data if posting to a circle
+      if (circleId) {
+        fd.append('circleId', circleId);
+        fd.append('isAnonymous', String(isAnonymous));
+      }
 
       const xhr = new XMLHttpRequest();
       xhrRef.current = xhr;
@@ -76,7 +112,7 @@ export default function WritePage() {
           } 
         }
       };
-      xhr.open('POST', 'http://127.0.0.1:5000/api/posts');
+      xhr.open('POST', `${API_URL}/api/posts`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(fd);
     } catch (e) { setLoading(false); showToast('Network error', 'error') }
@@ -107,6 +143,38 @@ export default function WritePage() {
           <h2>Create Your Story</h2>
           <p className="subtitle">Share your emotional journey with the world</p>
         </div>
+
+        {/* Circle Posting Indicator */}
+        {circle && (
+          <div style={{
+            background: `${circle.color}20`,
+            border: `2px solid ${circle.color}`,
+            borderRadius: '12px',
+            padding: '16px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <div style={{ fontSize: '32px' }}>{circle.icon}</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                Posting to {circle.name}
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                🔒 This post will be anonymous and disappear after 7 days
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={isAnonymous} 
+                onChange={(e) => setIsAnonymous(e.target.checked)}
+              />
+              <span style={{ fontSize: '14px' }}>Anonymous</span>
+            </label>
+          </div>
+        )}
 
         {/* Main Content Form */}
         <div className="write-card">

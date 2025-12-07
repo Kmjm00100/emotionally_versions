@@ -4,6 +4,7 @@ import TopBar from '../components/TopBar';
 import PostCard from '../components/PostCard';
 import BottomNav from '../components/BottomNav';
 import { useToast } from '../contexts/ToastContext';
+import { API_URL } from '../config';
 
 export default function SearchPage(){
   const navigate = useNavigate();
@@ -26,7 +27,7 @@ export default function SearchPage(){
   const [sort,setSort] = useState('relevance');
   const { showToast } = useToast();
   const searchRef = useRef(null);
-  const BACKEND_ORIGIN = process.env.REACT_APP_API || 'http://127.0.0.1:5000';
+  const BACKEND_ORIGIN = API_URL;
   
   // Live user search suggestions
   useEffect(() => {

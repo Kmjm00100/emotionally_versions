@@ -1,5 +1,7 @@
 // Small API helper for frontend
-export const API_BASE = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
+import { API_URL } from './config';
+
+export const API_BASE = API_URL;
 
 export async function apiFetch(path, options = {}){
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;

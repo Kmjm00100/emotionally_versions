@@ -10,6 +10,12 @@ import ProfilePage from "./pages/ProfilePage";
 import TradePage from "./pages/TradePage";
 import SearchPage from "./pages/SearchPage";
 import ProfileEditPage from "./pages/ProfileEditPage";
+import CirclesPage from "./pages/CirclesPage";
+import CircleFeedPage from "./pages/CircleFeedPage";
+import MoodTrackerPage from "./pages/MoodTrackerPage";
+import GoalsPage from "./pages/GoalsPage";
+import RewardsPage from "./pages/RewardsPage";
+import MarketplacePage from "./pages/MarketplacePage";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -26,6 +32,12 @@ export default function App() {
         <Route path="/profile/edit" element={<ProtectedRoute><ProfileEditPage /></ProtectedRoute>} />
         <Route path="/trade" element={<ProtectedRoute><TradePage /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
+        <Route path="/circles" element={<ProtectedRoute><CirclesPage /></ProtectedRoute>} />
+        <Route path="/circles/:slug" element={<ProtectedRoute><CircleFeedPage /></ProtectedRoute>} />
+        <Route path="/moods" element={<ProtectedRoute><MoodTrackerPage /></ProtectedRoute>} />
+        <Route path="/goals" element={<ProtectedRoute><GoalsPage /></ProtectedRoute>} />
+        <Route path="/rewards" element={<ProtectedRoute><RewardsPage /></ProtectedRoute>} />
+        <Route path="/marketplace" element={<ProtectedRoute><MarketplacePage /></ProtectedRoute>} />
       </Routes>
     </div>
   );

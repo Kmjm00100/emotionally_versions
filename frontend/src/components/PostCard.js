@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import AIAnalysisCard from './AIAnalysisCard';
+import { API_URL } from '../config';
 
 export default function PostCard({ post }) {
   const date = new Date(post.createdAt).toLocaleString();
   const [i, setI] = useState(0);
   const imgsRaw = post.images || [];
-  const BACKEND_ORIGIN = process.env.REACT_APP_API || 'http://127.0.0.1:5000';
+  const BACKEND_ORIGIN = API_URL;
   const navigate = useNavigate();
 
   // normalize image URLs: allow absolute URLs, or join backend origin with paths like '/uploads/x' or 'uploads/x'
@@ -34,6 +35,65 @@ export default function PostCard({ post }) {
   const [cText, setCText] = useState('');
   const [listing, setListing] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Saved state
+  const [isSaved, setIsSaved] = useState(false);
+  
+  // Reactions
+  const [reactions, setReactions] = useState({
+    empathy: post.reactions?.empathy?.length || 0,
+    support: post.reactions?.support?.length || 0,
+    strength: post.reactions?.strength?.length || 0,
+    hope: post.reactions?.hope?.length || 0
+  });
+  const [userReaction, setUserReaction] = useState(null);
+
+  useEffect(() => {
+    // Check which reaction user has made
+    if (user && user.userId && post.reactions) {
+      const reactionTypes = ['empathy', 'support', 'strength', 'hope'];
+      for (const type of reactionTypes) {
+        if (post.reactions[type]?.some(id => id.toString() === user.userId)) {
+          setUserReaction(type);
+          break;
+        }
+      }
+    }
+  }, [post.reactions, user]);
+
+  const handleReaction = async (reactionType) => {
+    if (!token) return;
+    try {
+      // If clicking same reaction, remove it
+      if (userReaction === reactionType) {
+        const r = await fetch(`${BACKEND_ORIGIN}/api/posts/${post._id}/react`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (r.ok) {
+          setReactions(prev => ({ ...prev, [reactionType]: Math.max(0, prev[reactionType] - 1) }));
+          setUserReaction(null);
+        }
+      } else {
+        // Add new reaction (will replace old one)
+        const r = await fetch(`${BACKEND_ORIGIN}/api/posts/${post._id}/react`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ reactionType })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          setReactions(d.reactions);
+          setUserReaction(d.userReaction);
+        }
+      }
+    } catch (err) {
+      console.error('Reaction error:', err);
+    }
+  };
 
   useEffect(() => {
     // initial liked guess based on likedBy if present and user in context
@@ -42,6 +102,35 @@ export default function PostCard({ post }) {
       if (user && user.userId && lb.some(x => (x || '').toString() === user.userId)) setLiked(true);
     } catch (_) { /* noop */ }
   }, [post.likedBy, user]);
+
+  // Check if post is saved
+  useEffect(() => {
+    const checkSavedStatus = async () => {
+      if (!token || !post._id) return;
+      try {
+        const r = await fetch(`${BACKEND_ORIGIN}/api/posts/${post._id}/saved-status`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const d = await r.json();
+        if (r.ok) setIsSaved(d.isSaved);
+      } catch (_) { /* ignore */ }
+    };
+    checkSavedStatus();
+  }, [token, post._id]);
+
+  const toggleSave = async () => {
+    if (!token) return;
+    try {
+      const method = isSaved ? 'DELETE' : 'POST';
+      const r = await fetch(`${BACKEND_ORIGIN}/api/posts/${post._id}/save`, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (r.ok) {
+        setIsSaved(!isSaved);
+      }
+    } catch (_) { /* ignore */ }
+  };
 
   const toggleLike = async () => {
     if (!token) return; // optional: show toast, but keep component isolated
@@ -215,11 +304,56 @@ export default function PostCard({ post }) {
         <button className="btn secondary" onClick={() => setShowComments(v => !v)} aria-expanded={showComments} aria-controls={`comments-${post._id}`}>
           💬 {comments.length || (post.comments ? post.comments.length : 0)}
         </button>
+        <button className={isSaved ? 'btn' : 'btn secondary'} onClick={toggleSave} disabled={!token} aria-pressed={isSaved} aria-label="Save post" title={isSaved ? 'Unsave post' : 'Save post'}>
+          {isSaved ? '🔖' : '📑'}
+        </button>
         {isOwner && (
           <button className="btn" style={{marginLeft: 'auto', background: '#e74c3c', fontSize: '20px', padding: '8px 12px'}} onClick={() => setShowDeleteConfirm(true)} aria-label="Delete post">
             🗑️
           </button>
         )}
+      </div>
+      
+      {/* Reactions Bar */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        marginTop: '12px',
+        flexWrap: 'wrap'
+      }}>
+        {[
+          { type: 'empathy', emoji: '💙', label: 'Empathy' },
+          { type: 'support', emoji: '🤗', label: 'Support' },
+          { type: 'strength', emoji: '💪', label: 'Strength' },
+          { type: 'hope', emoji: '🌟', label: 'Hope' }
+        ].map(({ type, emoji, label }) => (
+          <button
+            key={type}
+            onClick={() => handleReaction(type)}
+            disabled={!token}
+            title={label}
+            style={{
+              padding: '6px 12px',
+              border: userReaction === type ? '2px solid var(--accent)' : '1px solid rgba(255,255,255,0.2)',
+              borderRadius: '20px',
+              background: userReaction === type ? 'rgba(139, 92, 246, 0.2)' : 'var(--bg-secondary)',
+              color: 'var(--text)',
+              cursor: token ? 'pointer' : 'not-allowed',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s',
+              transform: userReaction === type ? 'scale(1.05)' : 'scale(1)',
+              opacity: !token ? 0.5 : 1
+            }}
+          >
+            <span style={{ fontSize: '16px' }}>{emoji}</span>
+            <span style={{ fontWeight: userReaction === type ? 'bold' : 'normal' }}>
+              {reactions[type] || 0}
+            </span>
+          </button>
+        ))}
       </div>
       
       {/* Delete Confirmation Modal */}

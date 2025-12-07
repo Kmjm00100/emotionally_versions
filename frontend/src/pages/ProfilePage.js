@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import PostCard from '../components/PostCard';
 import BottomNav from '../components/BottomNav';
 import { useLocation } from 'react-router-dom';
+import { API_URL } from '../config';
 
 export default function ProfilePage(){
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export default function ProfilePage(){
   const params = new URLSearchParams(loc.search);
   const viewingUserId = params.get('user');
   const isOwnProfile = !viewingUserId || (user && viewingUserId === user.userId);
-  const BACKEND_ORIGIN = process.env.REACT_APP_API || 'http://127.0.0.1:5000';
+  const BACKEND_ORIGIN = API_URL;
 
   // Fetch profile data
   useEffect(() => {
@@ -27,8 +28,15 @@ export default function ProfilePage(){
       setLoading(true);
       try {
         if (isOwnProfile) {
-          // Own profile
-          setProfileUser(user);
+          // Fetch own profile from backend to get latest data including avatar
+          if (token && user?.userId) {
+            const userR = await fetch(`${BACKEND_ORIGIN}/api/users/${user.userId}`);
+            const userData = await userR.json();
+            setProfileUser(userData);
+          } else {
+            setProfileUser(user);
+          }
+          
           const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
           const r = await fetch(`${BACKEND_ORIGIN}/api/my-posts?page=1&limit=100`, { headers });
           const data = await r.json();
