@@ -101,8 +101,126 @@ const userSchema = new mongoose.Schema({
   circles: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Circle' }],
   // Heart gifting stats
   heartsGifted: { type: Number, default: 0 },
-  heartsReceived: { type: Number, default: 0 }
+  heartsReceived: { type: Number, default: 0 },
+  // Saved posts
+  savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+  // Enhanced reward system
+  karma: { type: Number, default: 0 },
+  level: { type: Number, default: 1 },
+  experience: { type: Number, default: 0 },
+  badges: [{
+    name: String,
+    icon: String,
+    description: String,
+    earnedAt: { type: Date, default: Date.now },
+    category: { type: String, enum: ['posting', 'trading', 'support', 'goals', 'mood', 'special'] }
+  }],
+  streak: {
+    current: { type: Number, default: 0 },
+    longest: { type: Number, default: 0 },
+    lastActivity: Date
+  },
+  tradeStats: {
+    completed: { type: Number, default: 0 },
+    rating: { type: Number, default: 5.0 },
+    totalRatings: { type: Number, default: 0 },
+    successRate: { type: Number, default: 100 }
+  }
 });
+
+// Badge Achievement System
+const badgeSchema = new mongoose.Schema({
+  name: { type: String, unique: true, required: true },
+  icon: { type: String, required: true },
+  description: { type: String, required: true },
+  category: { type: String, enum: ['posting', 'trading', 'support', 'goals', 'mood', 'special'], required: true },
+  requirements: {
+    type: { type: String, enum: ['count', 'streak', 'level', 'hearts', 'karma'] },
+    target: Number,
+    action: String // 'posts_created', 'trades_completed', 'hearts_received', etc.
+  },
+  rarity: { type: String, enum: ['common', 'rare', 'epic', 'legendary'], default: 'common' },
+  rewards: {
+    hearts: { type: Number, default: 0 },
+    karma: { type: Number, default: 0 },
+    experience: { type: Number, default: 0 }
+  },
+  isActive: { type: Boolean, default: true }
+});
+const Badge = mongoose.model('Badge', badgeSchema);
+
+// Transaction History for all reward activities
+const transactionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, enum: ['hearts_earned', 'hearts_spent', 'karma_earned', 'experience_gained', 'badge_earned', 'trade_completed'], required: true },
+  amount: { type: Number, default: 0 },
+  source: { type: String, required: true }, // 'post_liked', 'goal_completed', 'trade_success', etc.
+  description: String,
+  relatedId: mongoose.Schema.Types.ObjectId, // ID of related post, goal, trade, etc.
+  metadata: mongoose.Schema.Types.Mixed,
+  createdAt: { type: Date, default: Date.now }
+});
+const Transaction = mongoose.model('Transaction', transactionSchema);
+
+// Enhanced Trade System with Escrow and Ratings
+const enhancedTradeSchema = new mongoose.Schema({
+  fromUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  toUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  // What is being offered
+  offer: {
+    posts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+    hearts: { type: Number, default: 0 },
+    items: [String] // Custom items like badges, special privileges
+  },
+  // What is being requested
+  request: {
+    posts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+    hearts: { type: Number, default: 0 },
+    items: [String]
+  },
+  message: String,
+  status: { type: String, enum: ['pending', 'accepted', 'rejected', 'completed', 'disputed', 'cancelled'], default: 'pending' },
+  escrow: {
+    isActive: { type: Boolean, default: false },
+    fromUserDeposit: { type: Number, default: 0 },
+    toUserDeposit: { type: Number, default: 0 }
+  },
+  ratings: {
+    fromUserRating: { type: Number, min: 1, max: 5 },
+    toUserRating: { type: Number, min: 1, max: 5 },
+    fromUserComment: String,
+    toUserComment: String
+  },
+  completedAt: Date,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+const EnhancedTrade = mongoose.model('EnhancedTrade', enhancedTradeSchema);
+
+// Marketplace Listings for better trade discovery
+const marketplaceListingSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true, maxlength: 100 },
+  description: { type: String, maxlength: 500 },
+  category: { type: String, enum: ['posts', 'hearts', 'services', 'collaboration'], required: true },
+  offering: {
+    posts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
+    hearts: { type: Number, default: 0 },
+    description: String
+  },
+  seeking: {
+    posts: { type: String }, // Description of wanted posts
+    hearts: { type: Number, default: 0 },
+    description: String
+  },
+  tags: [String],
+  status: { type: String, enum: ['active', 'paused', 'completed', 'expired'], default: 'active' },
+  expiresAt: { type: Date },
+  views: { type: Number, default: 0 },
+  interests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  createdAt: { type: Date, default: Date.now }
+});
+const MarketplaceListing = mongoose.model('MarketplaceListing', marketplaceListingSchema);
 
 
 // Advanced search with filters and simple highlights
@@ -322,6 +440,58 @@ const writingStreakSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 const WritingStreak = mongoose.model('WritingStreak', writingStreakSchema);
+
+// Goal model (Emotional Wellness Goals)
+const goalSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true, maxlength: 100 },
+  description: { type: String, maxlength: 500 },
+  category: { 
+    type: String, 
+    enum: ['mood_improvement', 'stress_reduction', 'social_connection', 'self_care', 'emotional_awareness', 'coping_skills', 'other'],
+    required: true 
+  },
+  targetType: {
+    type: String,
+    enum: ['daily_habit', 'weekly_target', 'milestone', 'streak'],
+    required: true
+  },
+  targetValue: { type: Number }, // e.g., 7 for 7 days streak, 3 for 3 times per week
+  targetUnit: { type: String }, // 'days', 'times', 'hours', 'sessions', etc.
+  deadline: { type: Date },
+  status: {
+    type: String,
+    enum: ['active', 'completed', 'paused', 'abandoned'],
+    default: 'active'
+  },
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high'],
+    default: 'medium'
+  },
+  milestones: [{
+    title: String,
+    targetValue: Number,
+    achieved: { type: Boolean, default: false },
+    achievedAt: Date
+  }],
+  currentProgress: { type: Number, default: 0 },
+  lastUpdated: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now }
+});
+const Goal = mongoose.model('Goal', goalSchema);
+
+// GoalProgress model (Track daily/weekly progress)
+const goalProgressSchema = new mongoose.Schema({
+  goalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Goal', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  date: { type: Date, required: true },
+  progressValue: { type: Number, required: true }, // Amount of progress made this day
+  note: { type: String, maxlength: 300 },
+  mood: { type: String }, // Link to mood for this day if available
+  createdAt: { type: Date, default: Date.now }
+});
+const GoalProgress = mongoose.model('GoalProgress', goalProgressSchema);
 
 // --------------------
 // Middleware
@@ -544,6 +714,77 @@ app.delete('/api/favorites/:writerId', authMiddleware, async (req, res) => {
     res.json({ ok: true, message: 'Writer removed from favorites' });
   } catch (err) {
     console.error('Remove favorite error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// --------------------
+// Saved Posts Endpoints
+// --------------------
+
+// Save a post
+app.post('/api/posts/:id/save', authMiddleware, async (req, res) => {
+  try {
+    const postId = req.params.id;
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $addToSet: { savedPosts: postId } }, // $addToSet prevents duplicates
+      { new: true }
+    );
+    
+    res.json({ ok: true, message: 'Post saved', savedPosts: user.savedPosts });
+  } catch (err) {
+    console.error('Save post error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Unsave a post
+app.delete('/api/posts/:id/save', authMiddleware, async (req, res) => {
+  try {
+    const postId = req.params.id;
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $pull: { savedPosts: postId } },
+      { new: true }
+    );
+    
+    res.json({ ok: true, message: 'Post unsaved', savedPosts: user.savedPosts });
+  } catch (err) {
+    console.error('Unsave post error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get all saved posts
+app.get('/api/posts/saved', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).populate('savedPosts').lean();
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ posts: user.savedPosts || [] });
+  } catch (err) {
+    console.error('Get saved posts error:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Check if post is saved
+app.get('/api/posts/:id/saved-status', authMiddleware, async (req, res) => {
+  try {
+    const postId = req.params.id;
+    const user = await User.findById(req.user.id);
+    
+    const isSaved = user.savedPosts.some(id => id.toString() === postId);
+    
+    res.json({ isSaved });
+  } catch (err) {
+    console.error('Check saved status error:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -869,6 +1110,17 @@ app.post("/api/posts", authMiddleware, (req, res, next) => {
     // Update writing streak
     await updateWritingStreak(req.user.id);
     
+    // Award experience and check badges for post creation
+    const expAmount = rarity === 'Legendary' ? 50 : rarity === 'Rare' ? 25 : 10;
+    await awardExperience(req.user.id, expAmount, 'post_created', `Created a ${rarity} post`);
+    
+    // Award karma based on post quality
+    const karmaAmount = rarity === 'Legendary' ? 20 : rarity === 'Rare' ? 10 : 5;
+    await awardKarma(req.user.id, karmaAmount, 'post_created', `Quality content: ${rarity} post`);
+    
+    // Check for posting badges
+    await checkBadges(req.user.id, 'post_created');
+    
     res.json(post);
   } catch (err) {
     console.error("Create post error:", err.message);
@@ -945,6 +1197,40 @@ app.post('/api/posts/:id/like', authMiddleware, async (req, res) => {
       post.likedBy = [...(post.likedBy||[]), uid];
       post.likes = (post.likes||0) + 1;
       liked = true;
+      
+      // Award rewards to post author when their post gets liked (not to the liker)
+      if (post.ownerId && post.ownerId.toString() !== uid) {
+        const heartReward = post.rarity === 'Legendary' ? 3 : post.rarity === 'Rare' ? 2 : 1;
+        const karmaReward = post.rarity === 'Legendary' ? 5 : post.rarity === 'Rare' ? 3 : 2;
+        
+        // Award hearts to post author
+        const author = await User.findById(post.ownerId);
+        if (author) {
+          author.hearts += heartReward;
+          author.heartsReceived += heartReward;
+          await author.save();
+          
+          // Create transaction for post author
+          await new Transaction({
+            userId: post.ownerId,
+            type: 'hearts_earned',
+            amount: heartReward,
+            source: 'post_liked',
+            description: `Your ${post.rarity} post received a like`,
+            relatedId: post._id,
+            metadata: { likedBy: uid, postTitle: post.title }
+          }).save();
+        }
+        
+        // Award karma to post author
+        await awardKarma(post.ownerId, karmaReward, 'post_liked', `Post received a like`);
+        
+        // Award small experience to liker for engaging
+        await awardExperience(uid, 1, 'liked_post', 'Engaged with community content');
+        
+        // Check badges for hearts received milestone
+        await checkBadges(post.ownerId, 'hearts_received');
+      }
     }
     await post.save();
     res.json({ ok:true, likes: post.likes, liked });
@@ -1196,16 +1482,25 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ 
   storage, 
   fileFilter, 
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB for audio
+  limits: { fileSize: 5 * 1024 * 1024 } // Reduced to 5MB to prevent timeouts
 });
 
 // middleware to handle multer errors cleanly
 function multerErrorHandler(err, req, res, next){
   if(err instanceof multer.MulterError){
     // handle Multer-specific errors
+    if(err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({error:'File too large (max 5MB)'});
+    if(err.code === 'LIMIT_UNEXPECTED_FILE') return res.status(400).json({error:'Unexpected file field'});
     return res.status(400).json({ error: err.message });
   }
   if(err){
+    // Handle network errors during upload
+    if(err.message && (err.message.includes('ECONNRESET') || err.message.includes('timeout'))){
+      return res.status(503).json({error:'Upload service temporarily unavailable. Please try again.'});
+    }
+    if(err.message && err.message.includes('Only image and audio files are allowed')){
+      return res.status(400).json({error:'Invalid file type. Only images and audio files allowed'});
+    }
     return res.status(400).json({ error: err.message || 'Upload error' });
   }
   next();
@@ -1228,12 +1523,32 @@ app.post('/api/test-upload', upload.single('file'), (req, res) => {
 // Upload avatar
 app.post('/api/profile/avatar', authMiddleware, upload.single('avatar'), async (req,res)=>{
   try{
-    if(!req.file) return res.status(400).json({ error: 'No file' });
+    if(!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    // For Cloudinary uploads, use the secure_url from the uploaded file
+    const avatarUrl = req.file.path || req.file.secure_url || `/uploads/${req.file.filename}`;
+    
     const user = await User.findById(req.user.id);
-  user.avatar = `/uploads/${req.file.filename}`.startsWith('/') ? `/uploads/${req.file.filename}` : '/' + `/uploads/${req.file.filename}`;
+    if(!user) return res.status(404).json({ error: 'User not found' });
+    
+    user.avatar = avatarUrl;
     await user.save();
-    res.json({ avatar: user.avatar });
-  }catch(err){ console.error('Avatar upload error', err.message); res.status(500).json({ error: 'Server error' }) }
+    
+    console.log(`✅ Avatar uploaded for user ${user.username}: ${avatarUrl}`);
+    res.json({ avatar: user.avatar, message: 'Avatar uploaded successfully' });
+  }catch(err){ 
+    console.error('❌ Avatar upload error:', err.message); 
+    
+    // Handle specific error types
+    if(err.message.includes('ECONNRESET')) {
+      return res.status(503).json({ error: 'Upload service temporarily unavailable. Please try again.' });
+    }
+    if(err.message.includes('timeout')) {
+      return res.status(408).json({ error: 'Upload timed out. Please try with a smaller file.' });
+    }
+    
+    res.status(500).json({ error: 'Upload failed. Please try again later.' });
+  }
 });
 
 
@@ -1417,6 +1732,260 @@ Provide a short, caring response (2-3 sentences) highlighting any patterns and o
   } catch (error) {
     console.error('Get insights error:', error);
     res.status(500).json({ error: 'Failed to generate insights' });
+  }
+});
+
+// --------------------
+// GOAL TRACKING ENDPOINTS
+// --------------------
+
+// Create a new goal
+app.post('/api/goals', authMiddleware, async (req, res) => {
+  try {
+    const { title, description, category, targetType, targetValue, targetUnit, deadline, priority, milestones } = req.body;
+
+    if (!title || !category || !targetType) {
+      return res.status(400).json({ error: 'Title, category, and target type are required' });
+    }
+
+    const goal = new Goal({
+      userId: req.user.id,
+      title: title.trim(),
+      description: description?.trim(),
+      category,
+      targetType,
+      targetValue,
+      targetUnit,
+      deadline: deadline ? new Date(deadline) : undefined,
+      priority: priority || 'medium',
+      milestones: milestones || []
+    });
+
+    await goal.save();
+    res.status(201).json(goal);
+  } catch (error) {
+    console.error('Create goal error:', error);
+    res.status(500).json({ error: 'Failed to create goal' });
+  }
+});
+
+// Get user's goals
+app.get('/api/goals', authMiddleware, async (req, res) => {
+  try {
+    const { status, category } = req.query;
+    
+    let filter = { userId: req.user.id };
+    if (status) filter.status = status;
+    if (category) filter.category = category;
+
+    const goals = await Goal.find(filter).sort({ createdAt: -1 });
+    res.json(goals);
+  } catch (error) {
+    console.error('Get goals error:', error);
+    res.status(500).json({ error: 'Failed to fetch goals' });
+  }
+});
+
+// Get progress statistics (must be before /:id route)
+app.get('/api/goals/stats', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const stats = await Goal.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalProgress: { $sum: '$currentProgress' }
+        }
+      }
+    ]);
+
+    const totalGoals = await Goal.countDocuments({ userId });
+    const completedGoals = await Goal.countDocuments({ userId, status: 'completed' });
+    const activeGoals = await Goal.countDocuments({ userId, status: 'active' });
+
+    const recentProgress = await GoalProgress.find({ userId })
+      .sort({ date: -1 })
+      .limit(7)
+      .populate('goalId', 'title category');
+
+    res.json({
+      totalGoals,
+      completedGoals,
+      activeGoals,
+      completionRate: totalGoals > 0 ? Math.round((completedGoals / totalGoals) * 100) : 0,
+      statsBreakdown: stats,
+      recentProgress
+    });
+  } catch (error) {
+    console.error('Get goal stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch goal statistics' });
+  }
+});
+
+// Get single goal with progress
+app.get('/api/goals/:id', authMiddleware, async (req, res) => {
+  try {
+    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+
+    // Get progress entries for this goal
+    const progressEntries = await GoalProgress.find({ 
+      goalId: req.params.id,
+      userId: req.user.id 
+    }).sort({ date: -1 });
+
+    res.json({ goal, progressEntries });
+  } catch (error) {
+    console.error('Get goal error:', error);
+    res.status(500).json({ error: 'Failed to fetch goal' });
+  }
+});
+
+// Update goal
+app.put('/api/goals/:id', authMiddleware, async (req, res) => {
+  try {
+    const updates = req.body;
+    delete updates._id; // Prevent ID updates
+    delete updates.userId; // Prevent user change
+
+    const goal = await Goal.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user.id },
+      { ...updates, lastUpdated: new Date() },
+      { new: true }
+    );
+
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+
+    res.json(goal);
+  } catch (error) {
+    console.error('Update goal error:', error);
+    res.status(500).json({ error: 'Failed to update goal' });
+  }
+});
+
+// Delete goal
+app.delete('/api/goals/:id', authMiddleware, async (req, res) => {
+  try {
+    const goal = await Goal.findOneAndDelete({ 
+      _id: req.params.id, 
+      userId: req.user.id 
+    });
+
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+
+    // Also delete associated progress entries
+    await GoalProgress.deleteMany({ goalId: req.params.id });
+
+    res.json({ message: 'Goal deleted successfully' });
+  } catch (error) {
+    console.error('Delete goal error:', error);
+    res.status(500).json({ error: 'Failed to delete goal' });
+  }
+});
+
+// Add progress to a goal
+app.post('/api/goals/:id/progress', authMiddleware, async (req, res) => {
+  try {
+    const { progressValue, note, date, mood } = req.body;
+
+    if (progressValue === undefined || progressValue === null) {
+      return res.status(400).json({ error: 'Progress value is required' });
+    }
+
+    // Check if goal exists and belongs to user
+    const goal = await Goal.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!goal) {
+      return res.status(404).json({ error: 'Goal not found' });
+    }
+
+    const progressDate = date ? new Date(date) : new Date();
+    
+    // Check if progress for this date already exists
+    const existingProgress = await GoalProgress.findOne({
+      goalId: req.params.id,
+      userId: req.user.id,
+      date: {
+        $gte: new Date(progressDate.toDateString()),
+        $lt: new Date(new Date(progressDate.toDateString()).getTime() + 24 * 60 * 60 * 1000)
+      }
+    });
+
+    if (existingProgress) {
+      // Update existing progress
+      existingProgress.progressValue = progressValue;
+      existingProgress.note = note;
+      if (mood) existingProgress.mood = mood;
+      await existingProgress.save();
+      
+      // Update goal's current progress
+      const totalProgress = await GoalProgress.aggregate([
+        { $match: { goalId: new mongoose.Types.ObjectId(req.params.id) } },
+        { $group: { _id: null, total: { $sum: '$progressValue' } } }
+      ]);
+      
+      goal.currentProgress = totalProgress[0]?.total || 0;
+      goal.lastUpdated = new Date();
+      
+      // Check if goal is completed
+      if (goal.targetValue && goal.currentProgress >= goal.targetValue) {
+        goal.status = 'completed';
+      }
+      
+      await goal.save();
+      return res.json({ progress: existingProgress, goal });
+    }
+
+    // Create new progress entry
+    const progress = new GoalProgress({
+      goalId: req.params.id,
+      userId: req.user.id,
+      date: progressDate,
+      progressValue,
+      note,
+      mood
+    });
+
+    await progress.save();
+
+    // Update goal's current progress
+    const totalProgress = await GoalProgress.aggregate([
+      { $match: { goalId: new mongoose.Types.ObjectId(req.params.id) } },
+      { $group: { _id: null, total: { $sum: '$progressValue' } } }
+    ]);
+    
+    goal.currentProgress = totalProgress[0]?.total || 0;
+    goal.lastUpdated = new Date();
+    
+    // Check milestones and completion
+    if (goal.milestones) {
+      goal.milestones.forEach(milestone => {
+        if (!milestone.achieved && goal.currentProgress >= milestone.targetValue) {
+          milestone.achieved = true;
+          milestone.achievedAt = new Date();
+        }
+      });
+    }
+    
+    // Check if goal is completed
+    if (goal.targetValue && goal.currentProgress >= goal.targetValue) {
+      goal.status = 'completed';
+    }
+    
+    await goal.save();
+
+    res.status(201).json({ progress, goal });
+  } catch (error) {
+    console.error('Add progress error:', error);
+    res.status(500).json({ error: 'Failed to add progress' });
   }
 });
 
@@ -1684,6 +2253,498 @@ async function updateWritingStreak(userId) {
     console.error('Update streak error:', error);
   }
 }
+
+// --------------------
+// ENHANCED REWARD & TRADING SYSTEM
+// --------------------
+
+// Utility function to award experience and check level ups
+async function awardExperience(userId, amount, source, description = '') {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
+
+    const oldLevel = user.level;
+    user.experience += amount;
+    
+    // Level calculation: 100 * level for next level
+    const newLevel = Math.floor(user.experience / 100) + 1;
+    if (newLevel > user.level) {
+      user.level = newLevel;
+      user.hearts += (newLevel - oldLevel) * 5; // Bonus hearts for leveling up
+      
+      // Create level up transaction
+      await new Transaction({
+        userId,
+        type: 'hearts_earned',
+        amount: (newLevel - oldLevel) * 5,
+        source: 'level_up',
+        description: `Level up bonus: ${oldLevel} → ${newLevel}`,
+        metadata: { oldLevel, newLevel }
+      }).save();
+    }
+
+    await user.save();
+
+    // Create experience transaction
+    await new Transaction({
+      userId,
+      type: 'experience_gained',
+      amount,
+      source,
+      description,
+      metadata: { oldLevel, newLevel: user.level }
+    }).save();
+
+    return { oldLevel, newLevel: user.level, experienceGained: amount };
+  } catch (error) {
+    console.error('Award experience error:', error);
+  }
+}
+
+// Utility function to award karma
+async function awardKarma(userId, amount, source, description = '') {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
+
+    user.karma += amount;
+    await user.save();
+
+    await new Transaction({
+      userId,
+      type: 'karma_earned',
+      amount,
+      source,
+      description
+    }).save();
+
+    return user.karma;
+  } catch (error) {
+    console.error('Award karma error:', error);
+  }
+}
+
+// Check and award badges
+async function checkBadges(userId, action, metadata = {}) {
+  try {
+    const user = await User.findById(userId);
+    const badges = await Badge.find({ isActive: true });
+    const earnedBadges = [];
+
+    for (const badge of badges) {
+      // Check if user already has this badge
+      const hasBadge = user.badges.some(b => b.name === badge.name);
+      if (hasBadge) continue;
+
+      let shouldAward = false;
+
+      switch (badge.requirements.action) {
+        case 'posts_created':
+          if (action === 'post_created') {
+            const postCount = await Post.countDocuments({ author: user.username });
+            shouldAward = postCount >= badge.requirements.target;
+          }
+          break;
+        case 'trades_completed':
+          if (action === 'trade_completed') {
+            shouldAward = user.tradeStats.completed >= badge.requirements.target;
+          }
+          break;
+        case 'hearts_received':
+          shouldAward = user.heartsReceived >= badge.requirements.target;
+          break;
+        case 'karma_earned':
+          shouldAward = user.karma >= badge.requirements.target;
+          break;
+        case 'level_reached':
+          shouldAward = user.level >= badge.requirements.target;
+          break;
+        case 'streak_achieved':
+          if (action === 'streak_updated') {
+            shouldAward = user.streak.current >= badge.requirements.target;
+          }
+          break;
+      }
+
+      if (shouldAward) {
+        user.badges.push({
+          name: badge.name,
+          icon: badge.icon,
+          description: badge.description,
+          category: badge.category,
+          earnedAt: new Date()
+        });
+
+        // Award badge rewards
+        if (badge.rewards.hearts > 0) {
+          user.hearts += badge.rewards.hearts;
+          await new Transaction({
+            userId,
+            type: 'hearts_earned',
+            amount: badge.rewards.hearts,
+            source: 'badge_earned',
+            description: `Badge reward: ${badge.name}`,
+            metadata: { badgeName: badge.name }
+          }).save();
+        }
+
+        if (badge.rewards.karma > 0) {
+          user.karma += badge.rewards.karma;
+        }
+
+        if (badge.rewards.experience > 0) {
+          await awardExperience(userId, badge.rewards.experience, 'badge_earned', `Badge: ${badge.name}`);
+        }
+
+        await new Transaction({
+          userId,
+          type: 'badge_earned',
+          amount: 1,
+          source: 'achievement',
+          description: badge.description,
+          metadata: { badgeName: badge.name, category: badge.category }
+        }).save();
+
+        earnedBadges.push(badge);
+      }
+    }
+
+    await user.save();
+    return earnedBadges;
+  } catch (error) {
+    console.error('Check badges error:', error);
+    return [];
+  }
+}
+
+// Get user's reward dashboard
+app.get('/api/rewards/dashboard', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    const recentTransactions = await Transaction.find({ userId: req.user.id })
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    // Calculate progress to next level
+    const currentLevelExp = (user.level - 1) * 100;
+    const nextLevelExp = user.level * 100;
+    const progressToNext = ((user.experience - currentLevelExp) / (nextLevelExp - currentLevelExp)) * 100;
+
+    // Get leaderboard position
+    const usersAbove = await User.countDocuments({ karma: { $gt: user.karma } });
+    const leaderboardPosition = usersAbove + 1;
+
+    res.json({
+      user: {
+        hearts: user.hearts,
+        karma: user.karma,
+        level: user.level,
+        experience: user.experience,
+        badges: user.badges,
+        streak: user.streak,
+        tradeStats: user.tradeStats,
+        progressToNext: Math.min(progressToNext, 100),
+        leaderboardPosition
+      },
+      recentTransactions
+    });
+  } catch (error) {
+    console.error('Get rewards dashboard error:', error);
+    res.status(500).json({ error: 'Failed to fetch rewards dashboard' });
+  }
+});
+
+// Get leaderboard
+app.get('/api/rewards/leaderboard', async (req, res) => {
+  try {
+    const { type = 'karma', limit = 10 } = req.query;
+    
+    let sortField = {};
+    if (type === 'karma') sortField = { karma: -1 };
+    else if (type === 'level') sortField = { level: -1, experience: -1 };
+    else if (type === 'hearts') sortField = { hearts: -1 };
+    else if (type === 'trades') sortField = { 'tradeStats.completed': -1 };
+    
+    const users = await User.find({})
+      .select('username avatar karma level hearts tradeStats badges')
+      .sort(sortField)
+      .limit(parseInt(limit));
+
+    res.json({ users, type });
+  } catch (error) {
+    console.error('Get leaderboard error:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard' });
+  }
+});
+
+// Create marketplace listing
+app.post('/api/marketplace/listings', authMiddleware, async (req, res) => {
+  try {
+    const { title, description, category, offering, seeking, tags, expiresAt } = req.body;
+
+    if (!title || !category) {
+      return res.status(400).json({ error: 'Title and category are required' });
+    }
+
+    const listing = new MarketplaceListing({
+      userId: req.user.id,
+      title: title.trim(),
+      description: description?.trim(),
+      category,
+      offering: offering || {},
+      seeking: seeking || {},
+      tags: tags || [],
+      expiresAt: expiresAt ? new Date(expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days default
+    });
+
+    await listing.save();
+    await awardExperience(req.user.id, 5, 'listing_created', 'Created marketplace listing');
+
+    res.status(201).json(listing);
+  } catch (error) {
+    console.error('Create listing error:', error);
+    res.status(500).json({ error: 'Failed to create listing' });
+  }
+});
+
+// Get marketplace listings
+app.get('/api/marketplace/listings', async (req, res) => {
+  try {
+    const { category, search, limit = 20, page = 1 } = req.query;
+    
+    let filter = { status: 'active', expiresAt: { $gt: new Date() } };
+    if (category) filter.category = category;
+    if (search) {
+      filter.$or = [
+        { title: new RegExp(search, 'i') },
+        { description: new RegExp(search, 'i') },
+        { tags: new RegExp(search, 'i') }
+      ];
+    }
+
+    const listings = await MarketplaceListing.find(filter)
+      .populate('userId', 'username avatar tradeStats karma level')
+      .populate('offering.posts', 'title emotion rarity')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const total = await MarketplaceListing.countDocuments(filter);
+
+    res.json({ listings, total, page: parseInt(page), totalPages: Math.ceil(total / limit) });
+  } catch (error) {
+    console.error('Get listings error:', error);
+    res.status(500).json({ error: 'Failed to fetch listings' });
+  }
+});
+
+// Express interest in a listing
+app.post('/api/marketplace/listings/:id/interest', authMiddleware, async (req, res) => {
+  try {
+    const listing = await MarketplaceListing.findById(req.params.id);
+    if (!listing) {
+      return res.status(404).json({ error: 'Listing not found' });
+    }
+
+    if (listing.userId.toString() === req.user.id) {
+      return res.status(400).json({ error: 'Cannot express interest in your own listing' });
+    }
+
+    if (!listing.interests.includes(req.user.id)) {
+      listing.interests.push(req.user.id);
+      await listing.save();
+    }
+
+    res.json({ message: 'Interest expressed successfully' });
+  } catch (error) {
+    console.error('Express interest error:', error);
+    res.status(500).json({ error: 'Failed to express interest' });
+  }
+});
+
+// Create enhanced trade offer
+app.post('/api/trades/enhanced', authMiddleware, async (req, res) => {
+  try {
+    const { toUserId, offer, request, message, useEscrow } = req.body;
+
+    if (!toUserId) {
+      return res.status(400).json({ error: 'Recipient user ID is required' });
+    }
+
+    if (toUserId === req.user.id) {
+      return res.status(400).json({ error: 'Cannot trade with yourself' });
+    }
+
+    // Validate user has the resources they're offering
+    const user = await User.findById(req.user.id);
+    if (offer.hearts && user.hearts < offer.hearts) {
+      return res.status(400).json({ error: 'Insufficient hearts to offer' });
+    }
+
+    const trade = new EnhancedTrade({
+      fromUserId: req.user.id,
+      toUserId,
+      offer: offer || {},
+      request: request || {},
+      message,
+      escrow: {
+        isActive: useEscrow || false
+      }
+    });
+
+    await trade.save();
+    await awardExperience(req.user.id, 2, 'trade_initiated', 'Initiated a trade offer');
+
+    res.status(201).json(trade);
+  } catch (error) {
+    console.error('Create enhanced trade error:', error);
+    res.status(500).json({ error: 'Failed to create trade offer' });
+  }
+});
+
+// Get enhanced trades
+app.get('/api/trades/enhanced', authMiddleware, async (req, res) => {
+  try {
+    const { type = 'all' } = req.query; // 'incoming', 'outgoing', 'all'
+    
+    let filter = {};
+    if (type === 'incoming') filter.toUserId = req.user.id;
+    else if (type === 'outgoing') filter.fromUserId = req.user.id;
+    else filter.$or = [{ fromUserId: req.user.id }, { toUserId: req.user.id }];
+
+    const trades = await EnhancedTrade.find(filter)
+      .populate('fromUserId', 'username avatar tradeStats level')
+      .populate('toUserId', 'username avatar tradeStats level')
+      .populate('offer.posts', 'title emotion rarity author')
+      .populate('request.posts', 'title emotion rarity author')
+      .sort({ createdAt: -1 });
+
+    res.json({ trades });
+  } catch (error) {
+    console.error('Get enhanced trades error:', error);
+    res.status(500).json({ error: 'Failed to fetch trades' });
+  }
+});
+
+// Accept/reject enhanced trade
+app.patch('/api/trades/enhanced/:id', authMiddleware, async (req, res) => {
+  try {
+    const { action, rating, comment } = req.body; // 'accept', 'reject', 'complete', 'rate'
+    
+    const trade = await EnhancedTrade.findById(req.params.id);
+    if (!trade) {
+      return res.status(404).json({ error: 'Trade not found' });
+    }
+
+    if (trade.toUserId.toString() !== req.user.id && trade.fromUserId.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to modify this trade' });
+    }
+
+    if (action === 'accept' && trade.toUserId.toString() === req.user.id) {
+      // Execute the trade
+      const fromUser = await User.findById(trade.fromUserId);
+      const toUser = await User.findById(trade.toUserId);
+
+      // Transfer hearts
+      if (trade.offer.hearts > 0) {
+        fromUser.hearts -= trade.offer.hearts;
+        toUser.hearts += trade.offer.hearts;
+      }
+      if (trade.request.hearts > 0) {
+        toUser.hearts -= trade.request.hearts;
+        fromUser.hearts += trade.request.hearts;
+      }
+
+      // Update trade stats
+      fromUser.tradeStats.completed += 1;
+      toUser.tradeStats.completed += 1;
+
+      await fromUser.save();
+      await toUser.save();
+
+      trade.status = 'completed';
+      trade.completedAt = new Date();
+
+      // Award experience for successful trade
+      await awardExperience(trade.fromUserId, 10, 'trade_completed', 'Completed trade successfully');
+      await awardExperience(trade.toUserId, 10, 'trade_completed', 'Completed trade successfully');
+
+      // Check for trade-related badges
+      await checkBadges(trade.fromUserId, 'trade_completed');
+      await checkBadges(trade.toUserId, 'trade_completed');
+
+    } else if (action === 'reject' && trade.toUserId.toString() === req.user.id) {
+      trade.status = 'rejected';
+    } else if (action === 'rate') {
+      const isFromUser = trade.fromUserId.toString() === req.user.id;
+      
+      if (isFromUser) {
+        trade.ratings.fromUserRating = rating;
+        trade.ratings.fromUserComment = comment;
+      } else {
+        trade.ratings.toUserRating = rating;
+        trade.ratings.toUserComment = comment;
+      }
+
+      // Update user's trade rating
+      const otherUserId = isFromUser ? trade.toUserId : trade.fromUserId;
+      const otherUser = await User.findById(otherUserId);
+      
+      const totalRating = otherUser.tradeStats.rating * otherUser.tradeStats.totalRatings + rating;
+      otherUser.tradeStats.totalRatings += 1;
+      otherUser.tradeStats.rating = totalRating / otherUser.tradeStats.totalRatings;
+      
+      await otherUser.save();
+    }
+
+    trade.updatedAt = new Date();
+    await trade.save();
+
+    res.json({ trade, message: 'Trade updated successfully' });
+  } catch (error) {
+    console.error('Update enhanced trade error:', error);
+    res.status(500).json({ error: 'Failed to update trade' });
+  }
+});
+
+// Initialize default badges (no auth required for initial setup)
+app.post('/api/admin/init-badges', async (req, res) => {
+  try {
+    // Check if badges already exist
+    const existingBadges = await Badge.countDocuments();
+    if (existingBadges > 0) {
+      return res.json({ message: 'Badges already initialized' });
+    }
+
+    const defaultBadges = [
+      // Posting badges
+      { name: 'First Steps', icon: '👶', description: 'Created your first post', category: 'posting', requirements: { type: 'count', target: 1, action: 'posts_created' }, rarity: 'common', rewards: { hearts: 5, karma: 10, experience: 20 } },
+      { name: 'Prolific Writer', icon: '✍️', description: 'Created 10 posts', category: 'posting', requirements: { type: 'count', target: 10, action: 'posts_created' }, rarity: 'rare', rewards: { hearts: 15, karma: 30, experience: 50 } },
+      { name: 'Master Storyteller', icon: '📖', description: 'Created 50 posts', category: 'posting', requirements: { type: 'count', target: 50, action: 'posts_created' }, rarity: 'epic', rewards: { hearts: 50, karma: 100, experience: 200 } },
+      
+      // Trading badges
+      { name: 'First Trade', icon: '🤝', description: 'Completed your first trade', category: 'trading', requirements: { type: 'count', target: 1, action: 'trades_completed' }, rarity: 'common', rewards: { hearts: 10, karma: 15, experience: 25 } },
+      { name: 'Merchant', icon: '💼', description: 'Completed 10 trades', category: 'trading', requirements: { type: 'count', target: 10, action: 'trades_completed' }, rarity: 'rare', rewards: { hearts: 25, karma: 50, experience: 100 } },
+      { name: 'Trade Master', icon: '👑', description: 'Completed 25 trades', category: 'trading', requirements: { type: 'count', target: 25, action: 'trades_completed' }, rarity: 'epic', rewards: { hearts: 75, karma: 150, experience: 300 } },
+      
+      // Support badges
+      { name: 'Supportive Soul', icon: '💝', description: 'Received 100 hearts from others', category: 'support', requirements: { type: 'count', target: 100, action: 'hearts_received' }, rarity: 'rare', rewards: { hearts: 20, karma: 40, experience: 75 } },
+      { name: 'Beloved Helper', icon: '🌟', description: 'Received 500 hearts from others', category: 'support', requirements: { type: 'count', target: 500, action: 'hearts_received' }, rarity: 'epic', rewards: { hearts: 100, karma: 200, experience: 400 } },
+      
+      // Level badges
+      { name: 'Rising Star', icon: '⭐', description: 'Reached level 5', category: 'special', requirements: { type: 'level', target: 5, action: 'level_reached' }, rarity: 'common', rewards: { hearts: 15, karma: 25, experience: 50 } },
+      { name: 'Experienced Member', icon: '🎖️', description: 'Reached level 10', category: 'special', requirements: { type: 'level', target: 10, action: 'level_reached' }, rarity: 'rare', rewards: { hearts: 30, karma: 75, experience: 150 } },
+      { name: 'Community Legend', icon: '🏆', description: 'Reached level 20', category: 'special', requirements: { type: 'level', target: 20, action: 'level_reached' }, rarity: 'legendary', rewards: { hearts: 100, karma: 300, experience: 500 } }
+    ];
+
+    await Badge.insertMany(defaultBadges);
+    res.json({ message: 'Default badges initialized successfully', count: defaultBadges.length });
+  } catch (error) {
+    console.error('Initialize badges error:', error);
+    res.status(500).json({ error: 'Failed to initialize badges' });
+  }
+});
 
 // --------------------
 const server = app.listen(PORT, HOST, () => {
